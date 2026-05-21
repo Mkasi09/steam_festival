@@ -58,3 +58,22 @@ CREATE TABLE IF NOT EXISTS learners (
     FOREIGN KEY (school_id) REFERENCES schools(id)
     ON DELETE CASCADE
 ) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS teachers (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  school_id INT UNSIGNED NOT NULL,
+  first_name VARCHAR(100) NOT NULL,
+  last_name VARCHAR(100) NOT NULL,
+  subject VARCHAR(100) NULL,
+  race VARCHAR(60) NULL,
+  gender ENUM('Female', 'Male', 'Other') NULL,
+  id_number VARCHAR(30) NULL,
+  email VARCHAR(180) NULL,
+  phone VARCHAR(40) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_teacher_school (school_id),
+  KEY idx_teacher_name (last_name, first_name),
+  CONSTRAINT fk_teacher_school
+    FOREIGN KEY (school_id) REFERENCES schools(id)
+    ON DELETE CASCADE
+) ENGINE=InnoDB;

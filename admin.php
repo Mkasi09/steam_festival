@@ -1,4 +1,14 @@
 <?php
+session_start();
+
+if (!isset($_SESSION['admin_logged_in'])) {
+    header('Location: admin_login.php');
+    exit;
+}
+?>
+
+
+<?php
 require_once __DIR__ . '/config.php';
 
 $pageTitle = 'Participation Overview';
@@ -6,12 +16,21 @@ $pdo = db();
 
 $schoolCount = (int) $pdo->query('SELECT COUNT(DISTINCT school_id) FROM learners')->fetchColumn();
 $learnerCount = (int) $pdo->query('SELECT COUNT(*) FROM learners')->fetchColumn();
+$teacherCount = (int) $pdo->query('SELECT COUNT(*) FROM teachers')->fetchColumn();
 $genderStats = $pdo->query(
     'SELECT
         SUM(CASE WHEN gender = "Female" THEN 1 ELSE 0 END) AS female_count,
         SUM(CASE WHEN gender = "Male" THEN 1 ELSE 0 END) AS male_count,
         SUM(CASE WHEN gender = "Other" THEN 1 ELSE 0 END) AS other_count
      FROM learners'
+)->fetch();
+
+$teacherGenderStats = $pdo->query(
+    'SELECT
+        SUM(CASE WHEN gender = "Female" THEN 1 ELSE 0 END) AS female_count,
+        SUM(CASE WHEN gender = "Male" THEN 1 ELSE 0 END) AS male_count,
+        SUM(CASE WHEN gender = "Other" THEN 1 ELSE 0 END) AS other_count
+     FROM teachers'
 )->fetch();
 
 $latestSchools = $pdo->query(
@@ -49,16 +68,19 @@ require __DIR__ . '/includes/header.php';
             <h2>Overview</h2>
         </div>
         <div class="panel-actions">
-            <a class="button secondary" href="admin_schools.php">View Schools</a>
-            <a class="button secondary" href="admin_learners.php">View Learners</a>
-        </div>
+    <a class="button secondary" href="admin_schools.php">View Schools</a>
+    <a class="button secondary" href="admin_learners.php">View Learners</a>
+    <a class="button secondary" href="admin_teachers.php">View Teachers</a>
+
+    <a class="button danger" href="logout.php">Logout</a>
+</div>
     </div>
 
     <div class="stats">
         <article><span>Participating Schools</span><strong><?= $schoolCount ?></strong></article>
         <article><span>Learner Entries</span><strong><?= $learnerCount ?></strong></article>
-        <article><span>Female Learners</span><strong><?= (int) ($genderStats['female_count'] ?? 0) ?></strong></article>
-        <article><span>Male Learners</span><strong><?= (int) ($genderStats['male_count'] ?? 0) ?></strong></article>
+        <article><span>Teacher Entries</span><strong><?= $teacherCount ?></strong></article>
+        
     </div>
 </section>
 
@@ -79,39 +101,17 @@ require __DIR__ . '/includes/header.php';
 <section class="panel">
     <div class="panel-heading">
         <div>
-            <p class="eyebrow">Recent data</p>
-            <h2>Latest participating schools</h2>
+            <p class="eyebrow">Participation</p>
+            <h2>Teacher Stats</h2>
         </div>
     </div>
-    <div class="table-wrap">
-        <table>
-            <thead>
-                <tr>
-                    <th>School</th>
-                    <th>EMIS</th>
-                    <th>District</th>
-                    <th>Circuit</th>
-                    <th>Address</th>
-                    <th>Export</th>
-                    <th>Latest Learner ID</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php foreach ($latestSchools as $school): ?>
-                    <tr>
-                        <td><?= e($school['name']) ?></td>
-                        <td><?= e($school['emis_number']) ?></td>
-                        <td><?= e($school['district']) ?></td>
-                        <td><?= e($school['circuit']) ?></td>
-                        <td><?= e($school['address']) ?></td>
-                        <td><a href="admin_export.php?type=school&school_id=<?= (int) $school['id'] ?>">Download</a></td>
-                        <td><?= (int) $school['latest_learner_id'] ?></td>
-                    </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
+    <div class="stats">
+        <article><span>Female</span><strong><?= (int) ($teacherGenderStats['female_count'] ?? 0) ?></strong></article>
+        <article><span>Male</span><strong><?= (int) ($teacherGenderStats['male_count'] ?? 0) ?></strong></article>
+        <article><span>Other</span><strong><?= (int) ($teacherGenderStats['other_count'] ?? 0) ?></strong></article>
     </div>
 </section>
+
 
 <section class="panel">
     <div class="panel-heading">
@@ -164,5 +164,101 @@ require __DIR__ . '/includes/header.php';
         </table>
     </div>
 </section>
+<section class="panel">
 
+    <div class="panel-heading">
+        <div>
+            <p class="eyebrow">Analytics</p>
+            <h2>Participation Graph</h2>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="overviewChart"></canvas>
+    </div>
+
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+
+const ctx = document.getElementById('overviewChart');
+
+new Chart(ctx, {
+
+    type: 'bar',
+
+    data: {
+
+        labels: [
+            'Schools',
+            'Learners',
+            'Teachers',
+            'Female Learners',
+            'Male Learners',
+            'Other Learners',
+            'Female Teachers',
+            'Male Teachers',
+            'Other Teachers'
+        ],
+
+        datasets: [{
+
+            label: 'Participation Statistics',
+
+            data: [
+
+                <?= $schoolCount ?>,
+                <?= $learnerCount ?>,
+                <?= $teacherCount ?>,
+
+                <?= (int) ($genderStats['female_count'] ?? 0) ?>,
+                <?= (int) ($genderStats['male_count'] ?? 0) ?>,
+                <?= (int) ($genderStats['other_count'] ?? 0) ?>,
+
+                <?= (int) ($teacherGenderStats['female_count'] ?? 0) ?>,
+                <?= (int) ($teacherGenderStats['male_count'] ?? 0) ?>,
+                <?= (int) ($teacherGenderStats['other_count'] ?? 0) ?>
+
+            ],
+
+            borderWidth: 1,
+            borderRadius: 8
+
+        }]
+
+    },
+
+    options: {
+
+        responsive: true,
+
+        plugins: {
+
+            legend: {
+                display: false
+            }
+
+        },
+
+        scales: {
+
+            y: {
+
+                beginAtZero: true,
+
+                ticks: {
+                    precision: 0
+                }
+
+            }
+
+        }
+
+    }
+
+});
+
+</script>
 <?php require __DIR__ . '/includes/footer.php'; ?>

@@ -11,6 +11,12 @@ function learnerIsValid(array $learner): bool
         && trim($learner['grade'] ?? '') !== '';
 }
 
+function teacherIsValid(array $teacher): bool
+{
+    return trim($teacher['first_name'] ?? '') !== ''
+        && trim($teacher['last_name'] ?? '') !== '';
+}
+
 function cleanGender(?string $gender): ?string
 {
     $gender = trim((string) $gender);
@@ -133,6 +139,90 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         flash('Learner deleted.');
         redirect('index.php?school_id=' . $schoolId);
     }
+
+    if ($action === 'add_teachers') {
+        $schoolId = (int) ($_POST['school_id'] ?? 0);
+        $teachers = $_POST['teachers'] ?? [];
+        $inserted = 0;
+
+        if ($schoolId < 1) {
+            flash('Choose a school before registering teachers.', 'error');
+            redirect('index.php');
+        }
+
+        $stmt = $pdo->prepare(
+            'INSERT INTO teachers (school_id, first_name, last_name, subject, race, gender, email, phone)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+
+        foreach ($teachers as $teacher) {
+            if (!is_array($teacher) || !teacherIsValid($teacher)) {
+                continue;
+            }
+
+            $stmt->execute([
+                $schoolId,
+                trim($teacher['first_name']),
+                trim($teacher['last_name']),
+                trim($teacher['subject'] ?? '') ?: null,
+                trim($teacher['race'] ?? '') ?: null,
+                cleanGender($teacher['gender'] ?? null),
+                trim($teacher['email'] ?? '') ?: null,
+                formatPhone(trim($teacher['phone'] ?? '')) ?: null,
+            ]);
+            $inserted++;
+        }
+
+        flash($inserted . ' teacher' . ($inserted === 1 ? '' : 's') . ' registered.');
+        redirect('index.php?school_id=' . $schoolId);
+    }
+
+    if ($action === 'update_teacher') {
+        $schoolId = (int) ($_POST['school_id'] ?? 0);
+        $teacherId = (int) ($_POST['teacher_id'] ?? 0);
+        $teacher = $_POST['teacher'] ?? [];
+
+        if ($schoolId < 1 || $teacherId < 1 || !is_array($teacher) || !teacherIsValid($teacher)) {
+            flash('Name and surname are required to update a teacher.', 'error');
+            redirect('index.php?school_id=' . max(0, $schoolId));
+        }
+
+        $stmt = $pdo->prepare(
+            'UPDATE teachers
+             SET first_name = ?, last_name = ?, subject = ?, race = ?, gender = ?, email = ?, phone = ?
+             WHERE id = ? AND school_id = ?'
+        );
+        $stmt->execute([
+            trim($teacher['first_name']),
+            trim($teacher['last_name']),
+            trim($teacher['subject'] ?? '') ?: null,
+            trim($teacher['race'] ?? '') ?: null,
+            cleanGender($teacher['gender'] ?? null),
+            trim($teacher['email'] ?? '') ?: null,
+            formatPhone(trim($teacher['phone'] ?? '')) ?: null,
+            $teacherId,
+            $schoolId,
+        ]);
+
+        flash('Teacher updated.');
+        redirect('index.php?school_id=' . $schoolId);
+    }
+
+    if ($action === 'delete_teacher') {
+        $schoolId = (int) ($_POST['school_id'] ?? 0);
+        $teacherId = (int) ($_POST['teacher_id'] ?? 0);
+
+        if ($schoolId < 1 || $teacherId < 1) {
+            flash('Invalid request.', 'error');
+            redirect('index.php?school_id=' . max(0, $schoolId));
+        }
+
+        $stmt = $pdo->prepare('DELETE FROM teachers WHERE id = ? AND school_id = ?');
+        $stmt->execute([$teacherId, $schoolId]);
+
+        flash('Teacher deleted.');
+        redirect('index.php?school_id=' . $schoolId);
+    }
 }
 
 $selectedSchoolId = (int) ($_GET['school_id'] ?? 0);
@@ -147,6 +237,7 @@ $districts = $pdo->query('SELECT id, name FROM districts ORDER BY name')->fetchA
 $circuits = $pdo->query('SELECT id, district_id, name FROM circuits ORDER BY name')->fetchAll();
 
 $selectedSchool = null;
+$registeredTeachers = [];
 $registeredLearners = [];
 
 if ($selectedSchoolId > 0) {
@@ -163,11 +254,25 @@ if ($selectedSchoolId > 0) {
 
     if ($selectedSchool) {
         $stmt = $pdo->prepare(
-            'SELECT id, first_name, last_name, race, grade, gender
-             FROM learners
+            'SELECT id, first_name, last_name, subject, race, gender, email, phone
+             FROM teachers
              WHERE school_id = ?
              ORDER BY id DESC'
         );
+        $stmt->execute([$selectedSchoolId]);
+        $registeredTeachers = $stmt->fetchAll();
+
+       $stmt = $pdo->prepare(
+    'SELECT id, first_name, last_name, race, grade, gender
+     FROM learners
+     WHERE school_id = ?
+     ORDER BY 
+        CASE 
+            WHEN grade = "R" THEN 0
+            ELSE CAST(grade AS UNSIGNED)
+        END ASC,
+        first_name ASC'
+);
         $stmt->execute([$selectedSchoolId]);
         $registeredLearners = $stmt->fetchAll();
     }
@@ -178,8 +283,7 @@ require __DIR__ . '/includes/header.php';
 
 <section class="hero-panel">
     <div>
-        <p class="eyebrow">STEAM Festival</p>
-        <h2>Register schools and learners</h2>
+        <p class="eyebrow">Welcome to the STEAM Festival 2026 registration!</p>
         <p>Choose an existing school from the list. If it is not there yet, add it once and continue with learner registration.</p>
     </div>
     <div class="school-summary">
@@ -228,6 +332,7 @@ require __DIR__ . '/includes/header.php';
         <div>
             <p class="eyebrow">School</p>
             <h2>Select school</h2>
+           <p>Select a school first, or add it if it is not in the dropdown.</p>
         </div>
     </div>
 
@@ -257,6 +362,7 @@ require __DIR__ . '/includes/header.php';
             </select>
         </label>
         <button class="button secondary" type="submit" id="load-school">Select School</button>
+
     </form>
 
     <form method="post" class="form add-school-panel" id="add-school-panel">
@@ -314,48 +420,280 @@ require __DIR__ . '/includes/header.php';
         <button class="button" type="submit">Add school</button>
     </form>
 </section>
-
+<?php if (!$selectedSchool): ?>
+    <?php else: ?>
 <section class="panel">
     <div class="panel-heading">
         <div>
-            <p class="eyebrow">Learners</p>
-            <h2><?= $selectedSchool ? 'Register learners for ' . e($selectedSchool['name']) : 'Register learners' ?></h2>
+            <p class="eyebrow">Registration</p>
+            <h2><?= $selectedSchool ? 'Register for ' . e($selectedSchool['name']) : 'Register' ?></h2>
         </div>
-        <?php if ($selectedSchool): ?>
-            <button class="button secondary" type="button" id="add-row">Add learner row</button>
-        <?php endif; ?>
     </div>
 
-    <?php if (!$selectedSchool): ?>
-        <p class="empty">Select a school first, or add it if it is not in the dropdown.</p>
-    <?php else: ?>
-        <form method="post" class="form">
-            <input type="hidden" name="action" value="add_learners">
-            <input type="hidden" name="school_id" value="<?= (int) $selectedSchool['id'] ?>">
+    
+       
+    
+        <div class="registration-tabs">
+           <div class="tabs-nav">
 
-            <div class="table-wrap">
-                <table id="learner-table" class="entry-table">
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Surname</th>
-                            <th>Race</th>
-                            <th>Grade</th>
-                            <th>Gender</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
+    <button
+        type="button"
+        class="tab-button active"
+        data-tab="teachers-tab"
+    >
+        TEACHERS
+    </button>
+
+    <button
+        type="button"
+        class="tab-button"
+        data-tab="learners-tab"
+    >
+        LEARNERS
+    </button>
+
+</div>
+
+            <div id="teachers-tab" class="tab-content active">
+                <div class="panel-heading tight">
+                    <div>
+                        <p class="eyebrow">Teachers</p>
+                        <h3>STEAM Festival Teacher Registration</h3>
+                    </div>
+                    <button class="button secondary" type="button" id="add-teacher-row">Add teacher row</button>
+                </div>
+                <form method="post" class="form">
+                    <input type="hidden" name="action" value="add_teachers">
+                    <input type="hidden" name="school_id" value="<?= (int) $selectedSchool['id'] ?>">
+
+                    <div class="table-wrap">
+                        <table id="teacher-table" class="entry-table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Surname</th>
+                                    <th>Subject</th>
+                                    <th>Race</th>
+                                    <th>Gender</th>
+                                    <th>Email</th>
+                                    <th>Phone</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+
+                    <button class="button" type="submit">Save teachers</button>
+                </form>
             </div>
 
-            <button class="button" type="submit">Save learners</button>
-        </form>
+            <div id="learners-tab" class="tab-content">
+                <div class="panel-heading tight">
+                    <div>
+                        <p class="eyebrow">Learners</p>
+                        <h3>Register learners for <?= e($selectedSchool['name']) ?></h3>
+                    </div>
+                    <button class="button secondary" type="button" id="add-row">Add learner row</button>
+                </div>
+                <form method="post" class="form">
+                    <input type="hidden" name="action" value="add_learners">
+                    <input type="hidden" name="school_id" value="<?= (int) $selectedSchool['id'] ?>">
+
+                    <div class="table-wrap">
+                        <table id="learner-table" class="entry-table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Surname</th>
+                                    <th>Race</th>
+                                    <th>Grade</th>
+                                    <th>Gender</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+
+                    <button class="button" type="submit">Save learners</button>
+                </form>
+            </div>
+        </div>
     <?php endif; ?>
 </section>
 
 <?php if ($selectedSchool): ?>
-    <section class="panel">
+
+    <!-- SAVED TEACHERS -->
+    <section class="panel saved-section" id="saved-teachers-section">
+        <div class="panel-heading">
+            <div>
+                <p class="eyebrow">Saved teachers</p>
+                <h2>Edit registered teachers</h2>
+            </div>
+        </div>
+
+        <?php if (!$registeredTeachers): ?>
+            <p class="empty">No teachers registered for this school yet.</p>
+        <?php else: ?>
+
+            <div class="edit-list">
+                <?php foreach ($registeredTeachers as $teacher): ?>
+                    <?php
+                    $initials = strtoupper(
+                        substr((string)$teacher['first_name'], 0, 1) .
+                        substr((string)$teacher['last_name'], 0, 1)
+                    );
+                    ?>
+
+                    <form method="post" class="edit-card">
+
+                        <input type="hidden" name="school_id" value="<?= (int)$selectedSchool['id'] ?>">
+                        <input type="hidden" name="teacher_id" value="<?= (int)$teacher['id'] ?>">
+
+                        <div class="learner-card-head">
+                            <div class="avatar"><?= e($initials ?: 'TR') ?></div>
+
+                            <div class="learner-summary">
+                                <strong>
+                                    <?= e($teacher['first_name'] . ' ' . $teacher['last_name']) ?>
+                                </strong>
+                            </div>
+                        </div>
+
+                        <div class="edit-fields">
+
+                            <label>
+                                Name
+                                <input
+                                    name="teacher[first_name]"
+                                    value="<?= e($teacher['first_name']) ?>"
+                                    required
+                                >
+                            </label>
+
+                            <label>
+                                Surname
+                                <input
+                                    name="teacher[last_name]"
+                                    value="<?= e($teacher['last_name']) ?>"
+                                    required
+                                >
+                            </label>
+
+                            <label>
+                                Subject
+                                <input
+                                    name="teacher[subject]"
+                                    value="<?= e($teacher['subject']) ?>"
+                                >
+                            </label>
+
+                            <label>
+                                Race
+                                <select name="teacher[race]">
+                                    <?php foreach (
+                                        [
+                                            '' => 'Select',
+                                            'African' => 'African',
+                                            'Coloured' => 'Coloured',
+                                            'Indian' => 'Indian',
+                                            'White' => 'White',
+                                            'Other' => 'Other'
+                                        ] as $value => $label
+                                    ): ?>
+
+                                        <option
+                                            value="<?= e($value) ?>"
+                                            <?= $teacher['race'] === $value ? 'selected' : '' ?>
+                                        >
+                                            <?= e($label) ?>
+                                        </option>
+
+                                    <?php endforeach; ?>
+                                </select>
+                            </label>
+
+                            <label>
+                                Gender
+                                <select name="teacher[gender]">
+
+                                    <?php foreach (
+                                        [
+                                            '' => 'Select',
+                                            'Female' => 'Female',
+                                            'Male' => 'Male',
+                                            'Other' => 'Other'
+                                        ] as $value => $label
+                                    ): ?>
+
+                                        <option
+                                            value="<?= e($value) ?>"
+                                            <?= $teacher['gender'] === $value ? 'selected' : '' ?>
+                                        >
+                                            <?= e($label) ?>
+                                        </option>
+
+                                    <?php endforeach; ?>
+                                </select>
+                            </label>
+
+                            <label>
+                                Email
+                                <input
+                                    type="email"
+                                    name="teacher[email]"
+                                    value="<?= e($teacher['email']) ?>"
+                                >
+                            </label>
+
+                            <label>
+                                Phone
+                                <input
+                                    name="teacher[phone]"
+                                    value="<?= e($teacher['phone']) ?>"
+                                >
+                            </label>
+
+                            <div class="actions">
+
+                                <button
+                                    class="button secondary"
+                                    type="submit"
+                                    name="action"
+                                    value="update_teacher"
+                                >
+                                    UPDATE
+                                </button>
+
+                                <button
+                                    class="icon-button delete"
+                                    type="submit"
+                                    name="action"
+                                    value="delete_teacher"
+                                    aria-label="Delete teacher"
+                                >
+                                    ✕
+                                </button>
+
+                            </div>
+
+                        </div>
+
+                    </form>
+
+                <?php endforeach; ?>
+            </div>
+
+        <?php endif; ?>
+    </section>
+
+
+
+    <!-- SAVED LEARNERS -->
+    <section class="panel saved-section" id="saved-learners-section">
+
         <div class="panel-heading">
             <div>
                 <p class="eyebrow">Saved learners</p>
@@ -366,88 +704,150 @@ require __DIR__ . '/includes/header.php';
         <?php if (!$registeredLearners): ?>
             <p class="empty">No learners registered for this school yet.</p>
         <?php else: ?>
-            <div class="learner-search">
-                <label>
-                    Search learners
-                    <input id="learner-search" type="search" placeholder="Search by name, surname, race, or grade">
-                </label>
-                <span id="learner-search-count"><?= count($registeredLearners) ?> learner<?= count($registeredLearners) === 1 ? '' : 's' ?></span>
-            </div>
 
             <div class="edit-list">
+
                 <?php foreach ($registeredLearners as $learner): ?>
+
                     <?php
-                    $searchText = strtolower(implode(' ', [
-                        $learner['first_name'],
-                        $learner['last_name'],
-                        $learner['race'],
-                        $learner['grade'],
-                        $learner['gender'],
-                    ]));
-                    $initials = strtoupper(substr((string) $learner['first_name'], 0, 1) . substr((string) $learner['last_name'], 0, 1));
+                    $initials = strtoupper(
+                        substr((string)$learner['first_name'], 0, 1) .
+                        substr((string)$learner['last_name'], 0, 1)
+                    );
                     ?>
-                    <form method="post" class="edit-card" data-learner-card data-search="<?= e($searchText) ?>">
-                        <!-- action buttons provide the action value -->
-                        <input type="hidden" name="school_id" value="<?= (int) $selectedSchool['id'] ?>">
-                        <input type="hidden" name="learner_id" value="<?= (int) $learner['id'] ?>">
+
+                    <form method="post" class="edit-card">
+
+                        <input type="hidden" name="school_id" value="<?= (int)$selectedSchool['id'] ?>">
+                        <input type="hidden" name="learner_id" value="<?= (int)$learner['id'] ?>">
 
                         <div class="learner-card-head">
+
                             <div class="avatar"><?= e($initials ?: 'LR') ?></div>
+
                             <div class="learner-summary">
-                                <strong><?= e($learner['first_name'] . ' ' . $learner['last_name']) ?></strong>
+                                <strong>
+                                    <?= e($learner['first_name'] . ' ' . $learner['last_name']) ?>
+                                </strong>
                             </div>
-                            
+
                         </div>
 
                         <div class="edit-fields">
+
                             <label>
                                 Name
-                                <input name="learner[first_name]" value="<?= e($learner['first_name']) ?>" required>
+                                <input
+                                    name="learner[first_name]"
+                                    value="<?= e($learner['first_name']) ?>"
+                                    required
+                                >
                             </label>
+
                             <label>
                                 Surname
-                                <input name="learner[last_name]" value="<?= e($learner['last_name']) ?>" required>
+                                <input
+                                    name="learner[last_name]"
+                                    value="<?= e($learner['last_name']) ?>"
+                                    required
+                                >
                             </label>
+
                             <label>
                                 Race
                                 <select name="learner[race]">
-                                    <?php foreach (['' => 'Select', 'African' => 'African', 'Coloured' => 'Coloured', 'Indian' => 'Indian', 'White' => 'White', 'Other' => 'Other'] as $value => $label): ?>
-                                        <option value="<?= e($value) ?>" <?= $learner['race'] === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+
+                                    <?php foreach (
+                                        [
+                                            '' => 'Select',
+                                            'African' => 'African',
+                                            'Coloured' => 'Coloured',
+                                            'Indian' => 'Indian',
+                                            'White' => 'White',
+                                            'Other' => 'Other'
+                                        ] as $value => $label
+                                    ): ?>
+
+                                        <option
+                                            value="<?= e($value) ?>"
+                                            <?= $learner['race'] === $value ? 'selected' : '' ?>
+                                        >
+                                            <?= e($label) ?>
+                                        </option>
+
                                     <?php endforeach; ?>
+
                                 </select>
                             </label>
+
                             <label>
                                 Grade
-                                <input name="learner[grade]" value="<?= e($learner['grade']) ?>" required>
+                                <input
+                                    name="learner[grade]"
+                                    value="<?= e($learner['grade']) ?>"
+                                    required
+                                >
                             </label>
+
                             <label>
                                 Gender
                                 <select name="learner[gender]">
-                                    <?php foreach (['' => 'Select', 'Female' => 'Female', 'Male' => 'Male', 'Other' => 'Other'] as $value => $label): ?>
-                                        <option value="<?= e($value) ?>" <?= $learner['gender'] === $value ? 'selected' : '' ?>><?= e($label) ?></option>
+
+                                    <?php foreach (
+                                        [
+                                            '' => 'Select',
+                                            'Female' => 'Female',
+                                            'Male' => 'Male',
+                                            'Other' => 'Other'
+                                        ] as $value => $label
+                                    ): ?>
+
+                                        <option
+                                            value="<?= e($value) ?>"
+                                            <?= $learner['gender'] === $value ? 'selected' : '' ?>
+                                        >
+                                            <?= e($label) ?>
+                                        </option>
+
                                     <?php endforeach; ?>
+
                                 </select>
                             </label>
-                            <!-- phone and email removed for learners -->
+
                             <div class="actions">
-                                <button class="button secondary" type="submit" name="action" value="update_learner">UPDATE</button>
-                                <button class="icon-button delete" type="submit" name="action" value="delete_learner" aria-label="Delete learner">
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
-                                        <path d="M3 6h18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                        <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                        <path d="M10 11v6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                        <path d="M14 11v6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                    </svg>
+
+                                <button
+                                    class="button secondary"
+                                    type="submit"
+                                    name="action"
+                                    value="update_learner"
+                                >
+                                    UPDATE
                                 </button>
+
+                                <button
+                                    class="icon-button delete"
+                                    type="submit"
+                                    name="action"
+                                    value="delete_learner"
+                                >
+                                    ✕
+                                </button>
+
                             </div>
+
                         </div>
+
                     </form>
+
                 <?php endforeach; ?>
+
             </div>
-            <p class="empty no-results" id="learner-no-results">No learners match that search.</p>
+
         <?php endif; ?>
+
     </section>
+
 <?php endif; ?>
 
 <template id="learner-row-template">
@@ -464,7 +864,25 @@ require __DIR__ . '/includes/header.php';
                 <option>Other</option>
             </select>
         </td>
-        <td><input name="learners[__i__][grade]" required></td>
+        <td>
+            <select name="learners[__i__][grade]" required>
+                <option value="">Select</option>
+                <option>R</option>
+                <option>0</option>
+                <option>1</option>
+                <option>2</option>
+                <option>3</option>
+                <option>4</option>
+                <option>5</option>
+                <option>6</option>
+                <option>7</option>
+                <option>8</option>
+                <option>9</option>
+                <option>10</option>
+                <option>11</option>
+                <option>12</option>
+            </select>
+        </td>
         <td>
             <select name="learners[__i__][gender]">
                 <option value="">Select</option>
@@ -477,7 +895,63 @@ require __DIR__ . '/includes/header.php';
     </tr>
 </template>
 
+<template id="teacher-row-template">
+    <tr>
+        <td><input name="teachers[__i__][first_name]" required></td>
+        <td><input name="teachers[__i__][last_name]" required></td>
+        <td><input name="teachers[__i__][subject]"></td>
+        <td>
+            <select name="teachers[__i__][race]">
+                <option value="">Select</option>
+                <option>African</option>
+                <option>Coloured</option>
+                <option>Indian</option>
+                <option>White</option>
+                <option>Other</option>
+            </select>
+        </td>
+        <td>
+            <select name="teachers[__i__][gender]">
+                <option value="">Select</option>
+                <option>Female</option>
+                <option>Male</option>
+                <option>Other</option>
+            </select>
+        </td>
+        <td><input type="email" name="teachers[__i__][email]"></td>
+        <td><input name="teachers[__i__][phone]"></td>
+        <td><button class="icon-button" type="button" aria-label="Remove row">x</button></td>
+    </tr>
+</template>
 <script>
+
+// Saved sections
+const savedTeachersSection = document.getElementById('saved-teachers-section');
+const savedLearnersSection = document.getElementById('saved-learners-section');
+
+// Show correct saved section
+function switchSavedSections(activeTab) {
+
+    if (!savedTeachersSection || !savedLearnersSection) {
+        return;
+    }
+
+    if (activeTab === 'teachers-tab') {
+
+        savedTeachersSection.style.display = 'block';
+        savedLearnersSection.style.display = 'none';
+
+    } else {
+
+        savedTeachersSection.style.display = 'none';
+        savedLearnersSection.style.display = 'block';
+
+    }
+}
+
+</script>
+<script>
+    
 const schoolPicker = document.querySelector('#school-picker');
 const schoolSearch = document.querySelector('#school-search');
 const schoolResults = document.querySelector('#school-search-results');
@@ -488,15 +962,29 @@ const newSchoolName = addSchoolPanel?.querySelector('input[name="name"]');
 const districtPicker = document.querySelector('#district-picker');
 const circuitPicker = document.querySelector('#circuit-picker');
 const circuitOptions = circuitPicker ? [...circuitPicker.querySelectorAll('option')] : [];
+
+// Teacher elements
+const teacherTableBody = document.querySelector('#teacher-table tbody');
+const teacherTemplate = document.querySelector('#teacher-row-template');
+const addTeacherRowButton = document.querySelector('#add-teacher-row');
+const teacherSearch = document.querySelector('#teacher-search');
+const teacherCards = [...document.querySelectorAll('[data-teacher-card]')];
+const teacherSearchCount = document.querySelector('#teacher-search-count');
+const teacherNoResults = document.querySelector('#teacher-no-results');
+
+// Learner elements
 const tableBody = document.querySelector('#learner-table tbody');
 const template = document.querySelector('#learner-row-template');
 const addRowButton = document.querySelector('#add-row');
 const learnerSearch = document.querySelector('#learner-search');
 const learnerCards = [...document.querySelectorAll('[data-learner-card]')];
-
-// edit fields are always visible; no click-to-toggle required
 const learnerSearchCount = document.querySelector('#learner-search-count');
 const learnerNoResults = document.querySelector('#learner-no-results');
+
+// Tab elements
+const tabButtons = [...document.querySelectorAll('.tab-button')];
+const tabContents = [...document.querySelectorAll('.tab-content')];
+
 let rowIndex = 0;
 
 function toggleAddSchoolPanel() {
@@ -524,6 +1012,14 @@ function filterCircuits() {
     });
 }
 
+function addTeacherRow() {
+    if (!teacherTableBody || !teacherTemplate) {
+        return;
+    }
+
+    teacherTableBody.insertAdjacentHTML('beforeend', teacherTemplate.innerHTML.replaceAll('__i__', rowIndex++));
+}
+
 function addLearnerRow() {
     if (!tableBody || !template) {
         return;
@@ -531,6 +1027,36 @@ function addLearnerRow() {
 
     tableBody.insertAdjacentHTML('beforeend', template.innerHTML.replaceAll('__i__', rowIndex++));
 }
+
+
+tabButtons.forEach((button) => {
+
+    button.addEventListener('click', () => {
+
+        const targetTab = button.dataset.tab;
+
+        // Remove active class from all buttons
+        tabButtons.forEach((btn) => {
+            btn.classList.remove('active');
+        });
+
+        // Hide all tab contents
+        tabContents.forEach((content) => {
+            content.classList.remove('active');
+        });
+
+        // Activate selected button
+        button.classList.add('active');
+
+        // Show selected tab
+        document.getElementById(targetTab).classList.add('active');
+
+        // SWITCH SAVED SECTIONS
+        switchSavedSections(targetTab);
+
+    });
+
+});
 
 schoolPicker.addEventListener('change', toggleAddSchoolPanel);
 schoolSearch?.addEventListener('input', () => {
@@ -585,11 +1111,25 @@ document.addEventListener('click', (event) => {
         schoolResults.classList.remove('visible');
     }
 });
+
 districtPicker?.addEventListener('change', filterCircuits);
 toggleAddSchoolPanel();
 filterCircuits();
+switchSavedSections('teachers-tab');
+// Teacher row management
+if (addTeacherRowButton && teacherTableBody) {
+    addTeacherRowButton.addEventListener('click', addTeacherRow);
+    teacherTableBody.addEventListener('click', (event) => {
+        if (event.target.matches('.icon-button')) {
+            event.target.closest('tr').remove();
+        }
+    });
 
-if (addRowButton) {
+    addTeacherRow();
+}
+
+// Learner row management
+if (addRowButton && tableBody) {
     addRowButton.addEventListener('click', addLearnerRow);
     tableBody.addEventListener('click', (event) => {
         if (event.target.matches('.icon-button')) {
@@ -597,11 +1137,29 @@ if (addRowButton) {
         }
     });
 
-    for (let i = 0; i < 5; i++) {
-        addLearnerRow();
-    }
+    addLearnerRow();
 }
 
+// Teacher search
+if (teacherSearch) {
+    teacherSearch.addEventListener('input', () => {
+        const query = teacherSearch.value.trim().toLowerCase();
+        let visibleCount = 0;
+
+        teacherCards.forEach((card) => {
+            const visible = card.dataset.search.includes(query);
+            card.hidden = !visible;
+            if (visible) {
+                visibleCount++;
+            }
+        });
+
+        teacherSearchCount.textContent = visibleCount + ' teacher' + (visibleCount === 1 ? '' : 's');
+        teacherNoResults.classList.toggle('visible', visibleCount === 0);
+    });
+}
+
+// Learner search
 if (learnerSearch) {
     learnerSearch.addEventListener('input', () => {
         const query = learnerSearch.value.trim().toLowerCase();
@@ -622,10 +1180,10 @@ if (learnerSearch) {
 </script>
 
 <script>
-// Confirm before deleting a learner
+// Confirm before deleting
 document.querySelectorAll('.icon-button.delete').forEach((btn) => {
     btn.addEventListener('click', (e) => {
-        if (!confirm('Delete this learner? This action cannot be undone.')) {
+        if (!confirm('Delete this person? This action cannot be undone.')) {
             e.preventDefault();
         }
     });

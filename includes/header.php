@@ -30,6 +30,7 @@ $notice = flash();
                     <a class="<?= $currentPage === 'admin.php' ? 'active' : '' ?>" href="admin.php">Overview</a>
                     <a class="<?= $currentPage === 'admin_schools.php' ? 'active' : '' ?>" href="admin_schools.php">School Participation</a>
                     <a class="<?= $currentPage === 'admin_learners.php' ? 'active' : '' ?>" href="admin_learners.php">Learner Entries</a>
+                    <a class="<?= $currentPage === 'admin_teachers.php' ? 'active' : '' ?>" href="admin_teachers.php">Teacher Entries</a>
                 </nav>
             </aside>
             <div class="admin-content">

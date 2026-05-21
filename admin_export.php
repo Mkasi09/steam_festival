@@ -98,6 +98,18 @@ if ($type === 'school' && $schoolId > 0) {
     $statsStmt->execute([$schoolId]);
     $stats = $statsStmt->fetch();
 
+    $teacherStatsStmt = $pdo->prepare(
+        'SELECT
+            COUNT(*) AS teacher_count,
+            SUM(CASE WHEN gender = "Female" THEN 1 ELSE 0 END) AS female_count,
+            SUM(CASE WHEN gender = "Male" THEN 1 ELSE 0 END) AS male_count,
+            SUM(CASE WHEN gender = "Other" THEN 1 ELSE 0 END) AS other_count
+         FROM teachers
+         WHERE school_id = ?'
+    );
+    $teacherStatsStmt->execute([$schoolId]);
+    $teacherStats = $teacherStatsStmt->fetch();
+
     $learnersStmt = $pdo->prepare(
         'SELECT first_name, last_name, race, grade, gender, phone, email
          FROM learners
@@ -106,6 +118,15 @@ if ($type === 'school' && $schoolId > 0) {
     );
     $learnersStmt->execute([$schoolId]);
     $learners = $learnersStmt->fetchAll();
+
+    $teachersStmt = $pdo->prepare(
+        'SELECT first_name, last_name, subject, race, gender, email, phone
+         FROM teachers
+         WHERE school_id = ?
+         ORDER BY last_name, first_name'
+    );
+    $teachersStmt->execute([$schoolId]);
+    $teachers = $teachersStmt->fetchAll();
 
     $learnerRows = [];
     foreach ($learners as $learner) {
@@ -117,6 +138,19 @@ if ($type === 'school' && $schoolId > 0) {
             $learner['gender'],
             formatPhone($learner['phone']),
             $learner['email'],
+        ];
+    }
+
+    $teacherRows = [];
+    foreach ($teachers as $teacher) {
+        $teacherRows[] = [
+            $teacher['first_name'],
+            $teacher['last_name'],
+            $teacher['subject'],
+            $teacher['race'],
+            $teacher['gender'],
+            $teacher['email'],
+            formatPhone($teacher['phone']),
         ];
     }
 
@@ -139,6 +173,20 @@ if ($type === 'school' && $schoolId > 0) {
                 <td>' . xlsCell((string) ($stats['other_count'] ?? 0)) . '</td>
             </tr>
         </table>
+        <table class="summary-box">
+            <tr>
+                <th>Total Teachers</th>
+                <th>Female</th>
+                <th>Male</th>
+                <th>Other</th>
+            </tr>
+            <tr>
+                <td>' . xlsCell((string) ($teacherStats['teacher_count'] ?? 0)) . '</td>
+                <td>' . xlsCell((string) ($teacherStats['female_count'] ?? 0)) . '</td>
+                <td>' . xlsCell((string) ($teacherStats['male_count'] ?? 0)) . '</td>
+                <td>' . xlsCell((string) ($teacherStats['other_count'] ?? 0)) . '</td>
+            </tr>
+        </table>
         <table>
             <tr><td class="section-title" colspan="8">School Details</td></tr>
             <tr>
@@ -157,10 +205,123 @@ if ($type === 'school' && $schoolId > 0) {
         <table>
             <tr><td class="section-title" colspan="7">Learner Entries</td></tr>
         </table>' .
-        xlsTable(['First Name', 'Last Name', 'Race', 'Grade', 'Gender', 'Phone', 'Email'], $learnerRows);
+        xlsTable(['First Name', 'Last Name', 'Race', 'Grade', 'Gender', 'Phone', 'Email'], $learnerRows) .
+        '<table>
+            <tr><td class="section-title" colspan="7">Teacher Entries</td></tr>
+        </table>' .
+        xlsTable(['First Name', 'Last Name', 'Subject', 'Race', 'Gender', 'Email', 'Phone'], $teacherRows);
 
     outXls('school_participation_' . cleanFileName((string) $school['name']), $body);
 }
+
+if ($type === 'teachers') {
+
+    $teacherStats = $pdo->query(
+        'SELECT
+            COUNT(*) AS teacher_count,
+            SUM(CASE WHEN gender = "Female" THEN 1 ELSE 0 END) AS female_count,
+            SUM(CASE WHEN gender = "Male" THEN 1 ELSE 0 END) AS male_count,
+            SUM(CASE WHEN gender = "Other" THEN 1 ELSE 0 END) AS other_count
+         FROM teachers'
+    )->fetch();
+
+    $teachersStmt = $pdo->query(
+        'SELECT
+            s.name AS school,
+            s.emis_number,
+            d.name AS district,
+            c.name AS circuit,
+            t.first_name,
+            t.last_name,
+            t.subject,
+            t.race,
+            t.gender,
+            t.phone,
+            t.email
+         FROM teachers t
+         LEFT JOIN schools s ON s.id = t.school_id
+         LEFT JOIN districts d ON d.id = s.district_id
+         LEFT JOIN circuits c ON c.id = s.circuit_id
+         ORDER BY s.name, t.last_name, t.first_name'
+    );
+
+    $teachers = $teachersStmt->fetchAll();
+
+    $teacherRows = [];
+
+    foreach ($teachers as $teacher) {
+        $teacherRows[] = [
+            $teacher['school'],
+            $teacher['emis_number'],
+            $teacher['district'],
+            $teacher['circuit'],
+            $teacher['first_name'],
+            $teacher['last_name'],
+            $teacher['subject'],
+            $teacher['race'],
+            $teacher['gender'],
+            formatPhone($teacher['phone']),
+            $teacher['email'],
+        ];
+    }
+
+    $body = '
+        <table>
+            <tr>
+                <td class="title" colspan="11">
+                    STEAM Festival Teacher Export
+                </td>
+            </tr>
+            <tr>
+                <td class="subtitle" colspan="11">
+                    Complete Teacher Participation Report
+                </td>
+            </tr>
+        </table>
+
+        <table class="summary-box">
+            <tr>
+                <th>Total Teachers</th>
+                <th>Female</th>
+                <th>Male</th>
+                <th>Other</th>
+            </tr>
+            <tr>
+                <td>' . xlsCell((string) ($teacherStats['teacher_count'] ?? 0)) . '</td>
+                <td>' . xlsCell((string) ($teacherStats['female_count'] ?? 0)) . '</td>
+                <td>' . xlsCell((string) ($teacherStats['male_count'] ?? 0)) . '</td>
+                <td>' . xlsCell((string) ($teacherStats['other_count'] ?? 0)) . '</td>
+            </tr>
+        </table>
+
+        <table>
+            <tr>
+                <td class="section-title" colspan="11">
+                    Teacher Participation Details
+                </td>
+            </tr>
+        </table>' .
+
+        xlsTable(
+            [
+                'School',
+                'EMIS',
+                'District',
+                'Circuit',
+                'First Name',
+                'Last Name',
+                'Subject',
+                'Race',
+                'Gender',
+                'Phone',
+                'Email'
+            ],
+            $teacherRows
+        );
+
+    outXls('teachers_participation_export', $body);
+}
+
 
 $overallStats = $pdo->query(
     'SELECT
@@ -168,7 +329,11 @@ $overallStats = $pdo->query(
         (SELECT COUNT(*) FROM learners) AS learner_count,
         (SELECT SUM(CASE WHEN gender = "Female" THEN 1 ELSE 0 END) FROM learners) AS female_count,
         (SELECT SUM(CASE WHEN gender = "Male" THEN 1 ELSE 0 END) FROM learners) AS male_count,
-        (SELECT SUM(CASE WHEN gender = "Other" THEN 1 ELSE 0 END) FROM learners) AS other_count'
+        (SELECT SUM(CASE WHEN gender = "Other" THEN 1 ELSE 0 END) FROM learners) AS other_count,
+        (SELECT COUNT(*) FROM teachers) AS teacher_count,
+        (SELECT SUM(CASE WHEN gender = "Female" THEN 1 ELSE 0 END) FROM teachers) AS teacher_female_count,
+        (SELECT SUM(CASE WHEN gender = "Male" THEN 1 ELSE 0 END) FROM teachers) AS teacher_male_count,
+        (SELECT SUM(CASE WHEN gender = "Other" THEN 1 ELSE 0 END) FROM teachers) AS teacher_other_count'
 )->fetch();
 
 $districtStats = $pdo->query(
@@ -189,6 +354,15 @@ $participants = $pdo->query(
      JOIN learners l ON l.school_id = s.id
      ORDER BY s.name, l.last_name, l.first_name'
 )->fetchAll();
+$teachersOverall = $pdo->query(
+    'SELECT s.name AS school, s.emis_number, d.name AS district, c.name AS circuit, s.address,
+            t.first_name, t.last_name, t.subject, t.race, t.gender, t.phone, t.email
+     FROM schools s
+     LEFT JOIN districts d ON d.id = s.district_id
+     LEFT JOIN circuits c ON c.id = s.circuit_id
+     JOIN teachers t ON t.school_id = s.id
+     ORDER BY s.name, t.last_name, t.first_name'
+)->fetchAll();
 
 $districtRows = [];
 foreach ($districtStats as $district) {
@@ -196,6 +370,24 @@ foreach ($districtStats as $district) {
 }
 
 $participantRows = [];
+$teacherOverallRows = [];
+
+foreach ($teachersOverall as $row) {
+    $teacherOverallRows[] = [
+        $row['school'],
+        $row['emis_number'],
+        $row['district'],
+        $row['circuit'],
+        $row['address'],
+        $row['first_name'],
+        $row['last_name'],
+        $row['subject'],
+        $row['race'],
+        $row['gender'],
+        formatPhone($row['phone']),
+        $row['email'],
+    ];
+}
 foreach ($participants as $row) {
     $participantRows[] = [
         $row['school'],
@@ -215,35 +407,55 @@ foreach ($participants as $row) {
 
 $body = '
     <table>
-        <tr><td class="title" colspan="12">STEAM Festival Overall Participation Export</td></tr>
-        <tr><td class="subtitle" colspan="12">Participation report with each field separated into its own Excel column.</td></tr>
+        <tr><td class="title" colspan="14">STEAM Festival Overall Participation Export</td></tr>
+        <tr><td class="subtitle" colspan="14">Participation report with each field separated into its own Excel column.</td></tr>
     </table>
     <table class="summary-box">
         <tr>
+            <th colspan="5">Learner Entries</th>
+            <th colspan="4">Teacher Entries</th>
+        </tr>
+        <tr>
+            <th>Total Learners</th>
+            <th>Female</th>
+            <th>Male</th>
+            <th>Other</th>
             <th>Participating Schools</th>
-            <th>Learner Entries</th>
+            <th>Total Teachers</th>
             <th>Female</th>
             <th>Male</th>
             <th>Other</th>
         </tr>
         <tr>
-            <td>' . xlsCell((string) ($overallStats['school_count'] ?? 0)) . '</td>
             <td>' . xlsCell((string) ($overallStats['learner_count'] ?? 0)) . '</td>
             <td>' . xlsCell((string) ($overallStats['female_count'] ?? 0)) . '</td>
             <td>' . xlsCell((string) ($overallStats['male_count'] ?? 0)) . '</td>
             <td>' . xlsCell((string) ($overallStats['other_count'] ?? 0)) . '</td>
+            <td>' . xlsCell((string) ($overallStats['school_count'] ?? 0)) . '</td>
+            <td>' . xlsCell((string) ($overallStats['teacher_count'] ?? 0)) . '</td>
+            <td>' . xlsCell((string) ($overallStats['teacher_female_count'] ?? 0)) . '</td>
+            <td>' . xlsCell((string) ($overallStats['teacher_male_count'] ?? 0)) . '</td>
+            <td>' . xlsCell((string) ($overallStats['teacher_other_count'] ?? 0)) . '</td>
         </tr>
     </table>
     <table>
         <tr><td class="section-title" colspan="3">District Summary</td></tr>
     </table>' .
     xlsTable(['District', 'Participating Schools', 'Learner Entries'], $districtRows) .
-    '<table>
-        <tr><td class="section-title" colspan="12">Participation Detail</td></tr>
-    </table>' .
-    xlsTable(
-        ['School', 'EMIS', 'District', 'Circuit', 'Address', 'First Name', 'Last Name', 'Race', 'Grade', 'Gender', 'Phone', 'Email'],
-        $participantRows
-    );
+   '<table>
+    <tr><td class="section-title" colspan="12">Learner Participation Detail</td></tr>
+</table>' .
+xlsTable(
+    ['School', 'EMIS', 'District', 'Circuit', 'Address', 'First Name', 'Last Name', 'Race', 'Grade', 'Gender', 'Phone', 'Email'],
+    $participantRows
+) .
+
+'<table>
+    <tr><td class="section-title" colspan="12">Teacher Participation Detail</td></tr>
+</table>' .
+xlsTable(
+    ['School', 'EMIS', 'District', 'Circuit', 'Address', 'First Name', 'Last Name', 'Subject', 'Race', 'Gender', 'Phone', 'Email'],
+    $teacherOverallRows
+);
 
 outXls('overall_participation_export', $body);

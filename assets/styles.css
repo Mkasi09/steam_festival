@@ -836,3 +836,108 @@ tbody tr:hover {
         width: 100%;
     }
 }
+/* =========================
+   REGISTRATION TABS
+========================= */
+
+/* =========================================
+   MODERN REGISTRATION TABS
+========================================= */
+
+.registration-tabs{
+    width: 100%;
+    margin-top: 20px;
+}
+
+/* Tabs navigation */
+.tabs-nav{
+    display: flex;
+    align-items: center;
+    width: 100%;
+    margin-bottom: 35px;
+
+    border-bottom: 2px solid #d9d9d9;
+}
+
+/* Tab buttons */
+.tab-button{
+    width: 50%;
+    background: transparent;
+    border: none;
+    outline: none;
+    cursor: pointer;
+
+    padding: 20px 10px;
+
+    font-size: 1rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+
+    color: #7b7b7b;
+
+    position: relative;
+
+    transition: all 0.3s ease;
+}
+
+/* Hover */
+.tab-button:hover{
+    color: #0f766e;
+}
+
+/* Active tab */
+.tab-button.active{
+    color: #0f766e;
+}
+
+/* Blue underline */
+.tab-button.active::after{
+    content: "";
+
+    position: absolute;
+
+    left: 0;
+    bottom: -2px;
+
+    width: 100%;
+    height: 4px;
+
+    background: #0f766e;
+
+    border-radius: 50px;
+}
+
+/* Tab content */
+.tab-content{
+    display: none;
+    animation: fadeIn 0.25s ease;
+}
+
+.tab-content.active{
+    display: block;
+}
+
+/* Animation */
+@keyframes fadeIn{
+    from{
+        opacity: 0;
+        transform: translateY(6px);
+    }
+
+    to{
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.chart-container{
+    width:100%;
+    height:500px;
+    padding:20px;
+}
+
+#overviewChart{
+    width:100% !important;
+    height:100% !important;
+}
